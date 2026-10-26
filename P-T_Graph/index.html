@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>気液平衡・p-Tグラフ シミュレーター V6</title>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --surface: #ffffff;
+            --background: #f8fafc;
+            --border: #e2e8f0;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --line1: #ef4444;
+            --line2: #10b981;
+            --line3: #f59e0b;
+
+            --sub-h2o: #1e3a8a;
+            --sub-etoh: #831843;
+            --sub-ace: #14532d;
+        }
+
+        body {
+            font-family: 'IBM Plex Sans', sans-serif;
+            background-color: var(--background);
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            gap: 20px;
+            height: 100vh;
+            box-sizing: border-box;
+        }
+
+        .panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+
+        .chart-container { flex-grow: 1; position: relative; }
+
+        #fixed-hover-box {
+            position: absolute;
+            top: 16px;
+            left: 16px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 12px 16px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            pointer-events: none;
+            z-index: 10;
+            display: none;
+            font-size: 0.95rem;
+            min-width: 140px;
+        }
+
+        #hover-box-t {
+            font-weight: 600;
+            margin-bottom: 6px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 6px;
+        }
+
+        .flex-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 8px; }
+
+        .btn-group { display: flex; gap: 4px; flex-grow: 1; }
+        .btn { flex: 1; padding: 6px 4px; border: 1px solid var(--border); background: var(--surface); border-radius: 4px; cursor: pointer; font-size: 0.85rem; font-family: inherit; transition: 0.2s; text-align: center; }
+        .btn.active { background: var(--primary); color: white; border-color: var(--primary); }
+        .btn-sub-h2o.active { background: var(--sub-h2o); border-color: var(--sub-h2o); }
+        .btn-sub-etoh.active { background: var(--sub-etoh); border-color: var(--sub-etoh); }
+        .btn-sub-ace.active { background: var(--sub-ace); border-color: var(--sub-ace); }
+
+        .toggle-container { display: flex; align-items: center; justify-content: space-between; }
+        .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: .3s; border-radius: 24px; }
+        .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; }
+        input:checked + .slider { background-color: var(--primary); }
+        input:checked + .slider:before { transform: translateX(20px); }
+
+        .control-group { border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 16px; }
+        .control-group.disabled { opacity: 0.5; }
+        .control-group.disabled .input-row, .control-group.disabled .btn-group { pointer-events: none; }
+        .header-line1 { border-left: 4px solid var(--line1); }
+        .header-line2 { border-left: 4px solid var(--line2); }
+        .header-line3 { border-left: 4px solid var(--line3); }
+
+        .input-row { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 0.9rem; }
+        .input-row input[type="range"] { flex-grow: 1; margin: 0 12px; }
+        .num-input { width: 65px; padding: 2px 4px; border: 1px solid var(--border); border-radius: 4px; text-align: right; font-family: inherit; font-size: 0.9rem; }
+
+        .state-output { background: #f1f5f9; padding: 8px 12px; border-radius: 4px; font-size: 0.8rem; line-height: 1.5; margin-top: 10px; border: 1px solid #e2e8f0; }
+
+        sub { vertical-align: baseline; position: relative; top: 0.25em; font-size: 0.75em; }
+
+        /* Modal */
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 100; opacity: 0; pointer-events: none; transition: 0.2s; }
+        .modal-overlay.active { opacity: 1; pointer-events: auto; }
+        .modal { background: white; padding: 24px; border-radius: 8px; width: 360px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .modal h3 { margin-top: 0; font-size: 1.1rem; margin-bottom: 16px; }
+        .modal-row { margin-bottom: 12px; font-size: 0.9rem; }
+        .modal-row select, .modal-row input[type="number"] { width: 100%; padding: 6px; margin-top: 4px; box-sizing: border-box; }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+        .btn-primary { background: var(--primary); color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <div class="panel">
+        <div class="chart-container">
+            <div id="fixed-hover-box">
+                <div id="hover-box-t">-- ℃</div>
+                <div id="hover-box-content"></div>
+            </div>
+            <canvas id="ptChart"></canvas>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="control-group" style="border-color: var(--border);">
+            <div class="flex-row" style="margin-bottom: 8px;">
+                <span style="font-weight: 500; font-size: 0.95rem;">グラフ表示範囲</span>
+                <div class="toggle-container" style="margin-bottom: 0;">
+                    <span style="font-size: 0.85rem; margin-right: 8px;">絶対零度</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="absZeroToggle">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
+            <div class="input-row">
+                <span style="width: 70px;">温度上限:</span>
+                <input type="range" id="t-max-slider" min="30" max="150" step="10" value="130">
+                <input type="number" id="t-max-num" min="30" max="150" step="10" value="130" class="num-input">
+            </div>
+            <div class="input-row">
+                <span style="width: 70px;">圧力上限:</span>
+                <input type="range" id="p-max-slider" min="50" max="1000" step="10" value="300">
+                <input type="number" id="p-max-num" min="50" max="1000" step="10" value="300" class="num-input">
+            </div>
+        </div>
+
+        <div style="font-size: 0.85rem; font-weight: 600; margin-bottom: 4px;">蒸気圧曲線の表示</div>
+        <div class="flex-row">
+            <div class="btn-group" id="curve-toggles">
+                <button class="btn btn-sub-h2o active" data-sub="h2o">H<sub>2</sub>O</button>
+                <button class="btn btn-sub-etoh active" data-sub="etoh">C<sub>2</sub>H<sub>5</sub>OH</button>
+                <button class="btn btn-sub-ace active" data-sub="ace">アセトン</button>
+            </div>
+        </div>
+
+        <div class="flex-row" style="background: var(--background); padding: 8px 12px; border-radius: 6px; margin-bottom: 16px;">
+            <span style="font-size: 0.9rem; font-weight: 500;">実際の圧力の強調表示</span>
+            <label class="toggle-switch">
+                <input type="checkbox" id="highlightToggle" checked>
+                <span class="slider"></span>
+            </label>
+        </div>
+
+        <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 8px;">
+            対象温度: <span id="hoverTempDisplay" style="font-weight:bold; color:var(--text-main);">--</span> ℃ (グラフホバー連動)
+        </div>
+
+        <div id="controls-container"></div>
+    </div>
+
+    <!-- Modal for Snapping -->
+    <div class="modal-overlay" id="snapModal">
+        <div class="modal">
+            <h3>直線スナップ設定</h3>
+            <div class="modal-row" style="background: #f8fafc; padding: 8px; border-radius: 4px;">
+                指定点: <strong id="modal-t">--</strong> ℃, <strong id="modal-p">--</strong> kPa<br>
+                対象物質: <strong id="modal-sub">--</strong>
+            </div>
+            <div class="modal-row">
+                <label>適用する系を選択:</label>
+                <select id="modal-system">
+                    <option value="1">系 1</option>
+                    <option value="2">系 2</option>
+                    <option value="3">系 3</option>
+                </select>
+            </div>
+            <div class="modal-row" style="display:flex; gap: 12px; align-items: center; margin-top: 16px;">
+                <label><input type="radio" name="modal-calc-mode" value="fix_v" checked> 体積 V を固定</label>
+                <label><input type="radio" name="modal-calc-mode" value="fix_n"> 物質量 n を固定</label>
+            </div>
+            <div class="modal-row">
+                <label id="modal-input-label">固定する 体積 V (L):</label>
+                <input type="number" id="modal-input-val" step="0.1" value="5.0">
+            </div>
+            <div class="modal-row" style="margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border);">
+                算出結果: <strong id="modal-result" style="color: var(--primary); font-size: 1.1rem;">--</strong> <span id="modal-result-unit">mol</span>
+            </div>
+            <div class="modal-actions">
+                <button class="btn" id="modal-cancel">キャンセル</button>
+                <button class="btn-primary" id="modal-apply">適用する</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const R = 8.314;
+
+        const substances = {
+            h2o:  { id: 'h2o',  label: '水', html: 'H<sub>2</sub>O', A: 8.07131, B: 1730.63, C: 233.426, color: '#1e3a8a', visible: true },
+            etoh: { id: 'etoh', label: 'エタノール', html: 'C<sub>2</sub>H<sub>5</sub>OH', A: 8.20417, B: 1642.89, C: 230.300, color: '#831843', visible: true },
+            ace:  { id: 'ace',  label: 'アセトン', html: 'アセトン', A: 7.11714, B: 1210.595, C: 229.664, color: '#14532d', visible: true }
+        };
+
+        function getVaporPressure(t, subKey) {
+            const s = substances[subKey];
+            const p_mmHg = Math.pow(10, s.A - (s.B / (s.C + t)));
+            return p_mmHg * (101.325 / 760.0);
+        }
+
+        function getIdealPressure(t, n, v) {
+            return (n * R * (t + 273.15)) / v;
+        }
+
+        function findIntersection(n, v, subKey) {
+            let low = 20, high = 150;
+            let p_ideal_low = getIdealPressure(low, n, v);
+            let p_vapor_low = getVaporPressure(low, subKey);
+            let p_ideal_high = getIdealPressure(high, n, v);
+            let p_vapor_high = getVaporPressure(high, subKey);
+
+            if ((p_ideal_low - p_vapor_low) * (p_ideal_high - p_vapor_high) > 0) return null;
+
+            for (let i = 0; i < 20; i++) {
+                let mid = (low + high) / 2;
+                if ((p_ideal_low - p_vapor_low) * (getIdealPressure(mid, n, v) - getVaporPressure(mid, subKey)) > 0) low = mid;
+                else high = mid;
+            }
+            const t_int = (low + high) / 2;
+            return { x: t_int, y: getVaporPressure(t_int, subKey) };
+        }
+
+        const linesConfig = [
+            { id: 1, color: '#ef4444', label: '系 1', n: 0.05, v: 5.0, active: true, sub: 'h2o' },
+            { id: 2, color: '#10b981', label: '系 2', n: 0.10, v: 5.0, active: false, sub: 'etoh' },
+            { id: 3, color: '#f59e0b', label: '系 3', n: 0.05, v: 2.0, active: false, sub: 'ace' }
+        ];
+
+        let chartInstance = null;
+        let currentHoverT = 20;
+        let isAbsZero = false;
+
+        let currentTMax = 130;
+        let currentPMax = 300;
+
+        let snapData = { t: 0, p: 0, subKey: '' };
+
+        function initUI() {
+            document.getElementById('absZeroToggle').addEventListener('change', (e) => {
+                isAbsZero = e.target.checked;
+                updateChart();
+            });
+
+            const tMaxSlider = document.getElementById('t-max-slider');
+            const tMaxNum = document.getElementById('t-max-num');
+            const pMaxSlider = document.getElementById('p-max-slider');
+            const pMaxNum = document.getElementById('p-max-num');
+
+            const syncAxisLimits = (source, target, min, max, isTemp) => {
+                let val = parseInt(source.value);
+                if (isNaN(val) || val < min) val = min;
+                if (val > max) val = max;
+                if (source.type === 'number') val = Math.round(val / 10) * 10;
+
+                source.value = val;
+                target.value = val;
+
+                if (isTemp) currentTMax = val;
+                else currentPMax = val;
+                updateChart();
+            };
+
+            tMaxSlider.addEventListener('input', () => syncAxisLimits(tMaxSlider, tMaxNum, 30, 150, true));
+            tMaxNum.addEventListener('change', () => syncAxisLimits(tMaxNum, tMaxSlider, 30, 150, true));
+            pMaxSlider.addEventListener('input', () => syncAxisLimits(pMaxSlider, pMaxNum, 50, 1000, false));
+            pMaxNum.addEventListener('change', () => syncAxisLimits(pMaxNum, pMaxSlider, 50, 1000, false));
+
+            document.querySelectorAll('#curve-toggles .btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const sub = e.target.closest('.btn').dataset.sub;
+                    substances[sub].visible = !substances[sub].visible;
+                    e.target.closest('.btn').classList.toggle('active', substances[sub].visible);
+                    updateChart();
+                });
+            });
+
+            const container = document.getElementById('controls-container');
+            linesConfig.forEach(line => {
+                const group = document.createElement('div');
+                group.className = `control-group header-line${line.id}`;
+                group.id = `group-${line.id}`;
+
+                let subBtnsHtml = Object.keys(substances).map(k =>
+                    `<button class="btn btn-sub-${k} ${line.sub === k ? 'active' : ''}" data-sys="${line.id}" data-sub="${k}">${substances[k].html}</button>`
+                ).join('');
+
+                group.innerHTML = `
+                    <div class="flex-row" style="margin-bottom: 8px;">
+                        <strong>${line.label}</strong>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="active-${line.id}" ${line.active ? 'checked' : ''}>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="flex-row" style="margin-bottom: 12px;">
+                        <span style="font-size:0.85rem;">対象物質:</span>
+                        <div class="btn-group" id="sys-sub-${line.id}">${subBtnsHtml}</div>
+                    </div>
+                    <div class="input-row">
+                        <span>体積 V (L):</span>
+                        <input type="range" id="v-${line.id}" min="1.0" max="25.0" step="0.1" value="${line.v}">
+                        <input type="number" id="v-num-${line.id}" min="1.0" max="25.0" step="0.1" value="${line.v}" class="num-input">
+                    </div>
+                    <div class="input-row">
+                        <span>物質量 n (mol):</span>
+                        <input type="range" id="n-${line.id}" min="0.01" max="1.00" step="0.01" value="${line.n}">
+                        <input type="number" id="n-num-${line.id}" min="0.01" max="1.00" step="0.01" value="${line.n}" class="num-input">
+                    </div>
+                    <div class="input-row" style="margin-top: 6px; font-size: 0.85rem; color: var(--text-muted); justify-content: flex-start; gap: 6px;">
+                        <span>直線の傾き nR/V:</span>
+                        <span id="nrv-val-${line.id}" style="font-weight: 500; color: var(--text-main);"></span> kPa/℃
+                    </div>
+                    <div class="state-output" id="state-${line.id}">--</div>
+                `;
+                container.appendChild(group);
+
+                document.querySelectorAll(`#sys-sub-${line.id} .btn`).forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const targetBtn = e.target.closest('.btn');
+                        document.querySelectorAll(`#sys-sub-${line.id} .btn`).forEach(b => b.classList.remove('active'));
+                        targetBtn.classList.add('active');
+                        line.sub = targetBtn.dataset.sub;
+                        if(line.active) updateChart();
+                    });
+                });
+
+                const activeToggle = document.getElementById(`active-${line.id}`);
+                const vSlider = document.getElementById(`v-${line.id}`);
+                const vNum = document.getElementById(`v-num-${line.id}`);
+                const nSlider = document.getElementById(`n-${line.id}`);
+                const nNum = document.getElementById(`n-num-${line.id}`);
+
+                const syncUI = () => {
+                    line.active = activeToggle.checked;
+                    vNum.value = line.v.toFixed(1);
+                    vSlider.value = line.v;
+                    nNum.value = line.n.toFixed(2);
+                    nSlider.value = line.n;
+                    document.getElementById(`nrv-val-${line.id}`).innerText = ((line.n * R) / line.v).toPrecision(3);
+                    group.classList.toggle('disabled', !line.active);
+                };
+
+                const handleInput = (sourceV, sourceN) => {
+                    line.v = Math.min(25, Math.max(1, parseFloat(sourceV.value) || 1));
+                    line.n = Math.min(1, Math.max(0.01, parseFloat(sourceN.value) || 0.01));
+                    syncUI();
+                    if(line.active) updateChart();
+                };
+
+                activeToggle.addEventListener('change', () => { line.active = activeToggle.checked; syncUI(); updateChart(); });
+                vSlider.addEventListener('input', () => handleInput(vSlider, nSlider));
+                nSlider.addEventListener('input', () => handleInput(vSlider, nSlider));
+                vNum.addEventListener('change', () => handleInput(vNum, nNum));
+                nNum.addEventListener('change', () => handleInput(vNum, nNum));
+
+                syncUI();
+            });
+
+            document.getElementById('highlightToggle').addEventListener('change', updateChart);
+            initModalEvents();
+
+            document.getElementById('ptChart').addEventListener('mouseleave', () => {
+                document.getElementById('fixed-hover-box').style.display = 'none';
+            });
+
+            updateChart();
+        }
+
+        function updateChart() {
+            const highlightActual = document.getElementById('highlightToggle').checked;
+            const datasets = [];
+            const xMin = isAbsZero ? -273.15 : 20;
+
+            // 1. 蒸気圧曲線の描画 (20℃以上のみ描画)
+            Object.keys(substances).forEach(key => {
+                if(!substances[key].visible) return;
+                const data = [];
+                for(let t = 20; t <= currentTMax; t++) {
+                    data.push({x: t, y: getVaporPressure(t, key)});
+                }
+                datasets.push({
+                    label: substances[key].label,
+                    data: data,
+                    borderColor: substances[key].color,
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    fill: false,
+                    tension: 0.4,
+                    subKey: key
+                });
+            });
+
+            // 2. 標準大気圧
+            datasets.push({
+                label: '標準大気圧 (101.3 kPa)',
+                data: [{x: xMin, y: 101.3}, {x: currentTMax, y: 101.3}],
+                borderColor: '#94a3b8',
+                borderWidth: 1,
+                borderDash: [5, 5],
+                pointRadius: 0,
+                fill: false,
+                showLine: true
+            });
+
+            // 3. 各系のデータ
+            linesConfig.forEach(line => {
+                if (!line.active) return;
+                const idealData = [], actualData = [];
+
+                if (isAbsZero) {
+                    idealData.push({ x: -273.15, y: 0 }); // 原点
+                    for (let t = -270; t < 20; t += 10) { // 20℃未満の理論値
+                        idealData.push({ x: t, y: getIdealPressure(t, line.n, line.v) });
+                    }
+                }
+
+                for (let t = 20; t <= currentTMax; t++) {
+                    const p_ideal = getIdealPressure(t, line.n, line.v);
+                    const p_vapor = getVaporPressure(t, line.sub);
+                    idealData.push({ x: t, y: p_ideal });
+                    actualData.push({ x: t, y: Math.min(p_ideal, p_vapor) }); // 実際の圧力は20℃以上のみ
+                }
+
+                if (highlightActual) {
+                    datasets.push({ label: `${line.label} (理論値)`, data: idealData, borderColor: line.color, borderWidth: 1.5, borderDash: [4, 4], pointRadius: 0, fill: false });
+                    datasets.push({ label: `${line.label} (実際の圧力)`, data: actualData, borderColor: line.color, borderWidth: 3, pointRadius: 0, fill: false });
+                } else {
+                    datasets.push({ label: `${line.label} (理論値)`, data: idealData, borderColor: line.color, borderWidth: 2, pointRadius: 0, fill: false });
+                }
+
+                const intersect = findIntersection(line.n, line.v, line.sub);
+                if (intersect && intersect.x <= currentTMax && intersect.y <= currentPMax) {
+                    datasets.push({ label: `${line.label} 交点`, data: [intersect], borderColor: line.color, backgroundColor: line.color, pointRadius: 5, pointHoverRadius: 8, showLine: false });
+                }
+            });
+
+            if (chartInstance) {
+                chartInstance.data.datasets = datasets;
+                chartInstance.options.scales.x.min = xMin;
+                chartInstance.options.scales.x.max = currentTMax;
+                chartInstance.options.scales.y.max = currentPMax;
+                chartInstance.update('none');
+            } else {
+                const ctx = document.getElementById('ptChart').getContext('2d');
+                chartInstance = new Chart(ctx, {
+                    type: 'line',
+                    data: { datasets },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        interaction: { mode: 'nearest', intersect: false },
+                        scales: {
+                            x: { type: 'linear', title: { display: true, text: '温度 t [℃]', font: { size: 14 } }, min: xMin, max: currentTMax, ticks: { stepSize: isAbsZero ? 50 : 5 } },
+                            y: { type: 'linear', title: { display: true, text: '圧力 p [kPa]', font: { size: 14 } }, min: 0, max: currentPMax }
+                        },
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: { enabled: false }
+                        },
+                        onHover: (e, elements, chart) => {
+                            const pos = Chart.helpers.getRelativePosition(e, chart);
+                            const t = chart.scales.x.getValueForPixel(pos.x);
+                            const hoverBox = document.getElementById('fixed-hover-box');
+
+                            if(t >= xMin && t <= currentTMax) {
+                                currentHoverT = t;
+                                evaluateStateUI();
+
+                                document.getElementById('hover-box-t').innerText = `${t.toFixed(1)} ℃`;
+                                let html = '';
+
+                                if (t >= 20) {
+                                    // 20℃以上：指定物質の蒸気圧を表示
+                                    Object.keys(substances).forEach(k => {
+                                        if(substances[k].visible) {
+                                            const p = getVaporPressure(t, k);
+                                            html += `<div style="color: ${substances[k].color}; margin-top: 4px; display: flex; justify-content: space-between; gap: 16px;">
+                                                        <span>${substances[k].label}</span>
+                                                        <strong>${p.toFixed(1)} kPa</strong>
+                                                     </div>`;
+                                        }
+                                    });
+                                } else {
+                                    // 20℃未満：理論値（理想気体の圧力）のみを表示
+                                    linesConfig.forEach(line => {
+                                        if(line.active) {
+                                            const p = getIdealPressure(t, line.n, line.v);
+                                            html += `<div style="color: ${line.color}; margin-top: 4px; display: flex; justify-content: space-between; gap: 16px;">
+                                                        <span>${line.label} (理想気体)</span>
+                                                        <strong>${p.toFixed(1)} kPa</strong>
+                                                     </div>`;
+                                        }
+                                    });
+                                }
+
+                                document.getElementById('hover-box-content').innerHTML = html;
+                                hoverBox.style.display = 'block';
+
+                            } else {
+                                hoverBox.style.display = 'none';
+                            }
+                        }
+                    }
+                });
+
+                document.getElementById('ptChart').addEventListener('dblclick', (e) => {
+                    const pos = Chart.helpers.getRelativePosition(e, chartInstance);
+                    const t = chartInstance.scales.x.getValueForPixel(pos.x);
+                    const p = chartInstance.scales.y.getValueForPixel(pos.y);
+                    // 20℃未満でのスナップは無効
+                    if(t < 20 || t > currentTMax || p < 0 || p > currentPMax) return;
+
+                    let targetSub = null;
+                    let minDist = (currentPMax / 20);
+                    Object.keys(substances).forEach(k => {
+                        if(!substances[k].visible) return;
+                        const dist = Math.abs(getVaporPressure(t, k) - p);
+                        if(dist < minDist) { minDist = dist; targetSub = k; }
+                    });
+
+                    if(targetSub) openModal(t, getVaporPressure(t, targetSub), targetSub);
+                });
+            }
+            // 表示切り替え時のX軸目盛りステップ再設定
+            chartInstance.options.scales.x.ticks.stepSize = isAbsZero ? 50 : 5;
+            chartInstance.update('none');
+            evaluateStateUI();
+        }
+
+        function evaluateStateUI() {
+            document.getElementById('hoverTempDisplay').innerText = currentHoverT.toFixed(1);
+            linesConfig.forEach(line => {
+                const outDiv = document.getElementById(`state-${line.id}`);
+                if (!line.active) { outDiv.innerHTML = '<span style="color:var(--text-muted);">無効</span>'; return; }
+
+                if (currentHoverT < 20) {
+                    // 低温域（蒸気圧データなし）は理想気体としての理論値のみ表示
+                    const p_ideal = getIdealPressure(currentHoverT, line.n, line.v);
+                    outDiv.innerHTML = `<span style="color:var(--text-muted); font-weight:600;">理論値（データなし）</span><br>気: ${line.n.toFixed(3)} mol / 液: -- mol<br>理想気体圧: <b>${p_ideal.toFixed(1)}</b> kPa`;
+                    return;
+                }
+
+                const p_ideal = getIdealPressure(currentHoverT, line.n, line.v);
+                const p_vapor = getVaporPressure(currentHoverT, line.sub);
+
+                if (p_ideal <= p_vapor) {
+                    outDiv.innerHTML = `<span style="color:var(--primary); font-weight:600;">気体のみ</span><br>気: ${line.n.toFixed(3)} mol / 液: 0.000 mol<br>全圧: <b>${p_ideal.toFixed(1)}</b> kPa`;
+                } else {
+                    const n_gas = (p_vapor * line.v) / (R * (currentHoverT + 273.15));
+                    outDiv.innerHTML = `<span style="color:var(--line3); font-weight:600;">気液共存</span><br>気: ${n_gas.toFixed(3)} mol / 液: ${(line.n - n_gas).toFixed(3)} mol<br>全圧: <b>${p_vapor.toFixed(1)}</b> kPa (飽和)`;
+                }
+            });
+        }
+
+        // --- Modal Logic ---
+        function openModal(t, p, subKey) {
+            snapData = { t, p, subKey };
+            document.getElementById('modal-t').innerText = t.toFixed(1);
+            document.getElementById('modal-p').innerText = p.toFixed(1);
+            document.getElementById('modal-sub').innerHTML = substances[subKey].html;
+
+            const matchSys = linesConfig.find(l => l.active && l.sub === subKey) || linesConfig[0];
+            document.getElementById('modal-system').value = matchSys.id;
+
+            updateModalCalc();
+            document.getElementById('snapModal').classList.add('active');
+        }
+
+        function initModalEvents() {
+            document.getElementById('modal-cancel').addEventListener('click', () => {
+                document.getElementById('snapModal').classList.remove('active');
+            });
+
+            const radios = document.querySelectorAll('input[name="modal-calc-mode"]');
+            const inputVal = document.getElementById('modal-input-val');
+            const sysSelect = document.getElementById('modal-system');
+
+            const handleModeChange = () => {
+                const mode = document.querySelector('input[name="modal-calc-mode"]:checked').value;
+                const sysId = parseInt(sysSelect.value);
+                const line = linesConfig.find(l => l.id === sysId);
+
+                if(mode === 'fix_v') {
+                    document.getElementById('modal-input-label').innerText = '固定する 体積 V (L):';
+                    inputVal.value = line.v.toFixed(1);
+                    document.getElementById('modal-result-unit').innerText = 'mol (算出された物質量)';
+                } else {
+                    document.getElementById('modal-input-label').innerText = '固定する 物質量 n (mol):';
+                    inputVal.value = line.n.toFixed(2);
+                    document.getElementById('modal-result-unit').innerText = 'L (算出された体積)';
+                }
+                updateModalCalc();
+            };
+
+            radios.forEach(r => r.addEventListener('change', handleModeChange));
+            sysSelect.addEventListener('change', handleModeChange);
+            inputVal.addEventListener('input', updateModalCalc);
+
+            document.getElementById('modal-apply').addEventListener('click', () => {
+                const sysId = parseInt(sysSelect.value);
+                const line = linesConfig.find(l => l.id === sysId);
+                const mode = document.querySelector('input[name="modal-calc-mode"]:checked').value;
+                const fixedVal = parseFloat(inputVal.value);
+                const calcVal = parseFloat(document.getElementById('modal-result').innerText);
+
+                if(isNaN(fixedVal) || isNaN(calcVal)) return;
+
+                line.active = true;
+                line.sub = snapData.subKey;
+                if(mode === 'fix_v') { line.v = fixedVal; line.n = calcVal; }
+                else { line.n = fixedVal; line.v = calcVal; }
+
+                document.getElementById(`active-${sysId}`).checked = true;
+                document.getElementById(`v-${sysId}`).value = line.v;
+                document.getElementById(`v-num-${sysId}`).value = line.v.toFixed(1);
+                document.getElementById(`n-${sysId}`).value = line.n;
+                document.getElementById(`n-num-${sysId}`).value = line.n.toFixed(2);
+                document.getElementById(`nrv-val-${sysId}`).innerText = ((line.n * R) / line.v).toPrecision(3);
+
+                document.querySelectorAll(`#sys-sub-${sysId} .btn`).forEach(b => {
+                    b.classList.toggle('active', b.dataset.sub === line.sub);
+                });
+
+                document.getElementById(`group-${sysId}`).classList.remove('disabled');
+                document.getElementById('snapModal').classList.remove('active');
+                updateChart();
+            });
+        }
+
+        function updateModalCalc() {
+            const mode = document.querySelector('input[name="modal-calc-mode"]:checked').value;
+            const val = parseFloat(document.getElementById('modal-input-val').value);
+            const resEl = document.getElementById('modal-result');
+
+            if(isNaN(val) || val <= 0) { resEl.innerText = '--'; return; }
+
+            const T_kelvin = snapData.t + 273.15;
+            if(mode === 'fix_v') {
+                const n_calc = (snapData.p * val) / (R * T_kelvin);
+                resEl.innerText = n_calc.toFixed(3);
+            } else {
+                const v_calc = (val * R * T_kelvin) / snapData.p;
+                resEl.innerText = v_calc.toFixed(2);
+            }
+        }
+
+        window.onload = initUI;
+    </script>
+</body>
+</html>
